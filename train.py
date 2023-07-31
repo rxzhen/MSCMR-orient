@@ -6,6 +6,12 @@ from dataloader import MSCMRsegDatasetTrain, MSCMRsegDatasetPredict
 from model import my_net
 import os
 
+NAME = 'C0'
+batch_size = 32
+lr = 0.01
+num_epochs = 40
+device = 'cuda'
+
 
 def eval(model, dataloader):
     total = 0
@@ -20,66 +26,47 @@ def eval(model, dataloader):
     return correct / total
 
 
-NAME = 'C0'
-BATCH_SIZE = 32
+def train():
+    dataset_train = MSCMRsegDatasetTrain(NAME, 'train')
+    dataset_val = MSCMRsegDatasetTrain(NAME, 'val')
+    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
+    dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False)
 
-net = my_net()
+    net = my_net()
+    net = net.to(device)
+    optimizer = optim.SGD(net.parameters(), lr=lr)
+    criterion = nn.CrossEntropyLoss()
+    num_batches = len(dataloader_train)
+    best_acc = 0
 
-dataset_train = MSCMRsegDatasetTrain(NAME, 'train')
+    for epoch in range(num_epochs):
+        total_loss = 0.0
+        correct = 0
+        total = 0
+        for data in dataloader_train:
+            inputs = data[0].to(device).float()
+            labels = data[1].to(device)
+            optimizer.zero_grad()
+            outputs = net(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+            _, predicted = torch.max(outputs, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+        acc = eval(net, dataloader_val)
 
-dataset_val = MSCMRsegDatasetTrain(NAME, 'val')
+        if acc > best_acc:
+            torch.save(net.state_dict(), f'./data/checkpoints/{NAME}/model_best.pt')
+            best_acc = acc
+        torch.save(net.state_dict(), f'./data/checkpoints/{NAME}/model_latest.pt')
 
-dataloader_train = DataLoader(dataset_train, batch_size=BATCH_SIZE, shuffle=True)
+        print(f'Epoch{epoch}: {total_loss / num_batches}, {correct / total}, {acc}')
 
-dataloader_val = DataLoader(dataset_val, batch_size=BATCH_SIZE, shuffle=False)
 
-lr = 0.01
-num_epochs = 40
-
-device = 'cuda'
-net = net.to(device)
-optimizer = optim.SGD(net.parameters(), lr=lr)
-criterion = nn.CrossEntropyLoss()
-num_batches = len(dataloader_train)
-
-best_acc = 0
-
-loss_list = []
-train_acc = []
-val_acc = []
-
-for epoch in range(num_epochs):
-    total_loss = 0.0
-    correct = 0
-    total = 0
-    for data in dataloader_train:
-        inputs = data[0].to(device).float()
-        labels = data[1].to(device)
-        optimizer.zero_grad()
-        outputs = net(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-        _, predicted = torch.max(outputs, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
-    acc = eval(net, dataloader_val)
-
-    if acc > best_acc:
-        torch.save(net.state_dict(), f'./data/checkpoints/{NAME}/model_best.pt')
-        best_acc = acc
-    torch.save(net.state_dict(), f'./data/checkpoints/{NAME}/model_latest.pt')
-
-    loss_list.append(total_loss / num_batches)
-    train_acc.append(correct / total)
-    val_acc.append(acc)
-
-    print(f'Epoch{epoch}: {total_loss / num_batches}, {correct / total}, {acc}')
-
-torch.save(loss_list, 'train_loss.pt')
-torch.save(train_acc, 'train_acc.pt')
-torch.save(val_acc, 'val_acc.pt')
+if __name__ == '__main__':
+    train()
 
 # net.load_state_dict(torch.load(f'./data/checkpoints/{NAME}/model_best.pt'))
 #
